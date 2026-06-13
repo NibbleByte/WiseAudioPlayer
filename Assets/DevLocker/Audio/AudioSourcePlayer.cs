@@ -186,7 +186,7 @@ namespace DevLocker.Audio
 
 
 		[SerializeField]
-		[Tooltip("Resource to play. If left empty, it will copy the one of the template, if any")]
+		[Tooltip("Audio mixer to use.\nWill be overriden by AudioAsset's mixer if any.\nIf left empty, it will copy the one of the template, if any")]
 		private AudioMixerGroup m_Output;
 
 		[SerializeField]
@@ -244,6 +244,10 @@ namespace DevLocker.Audio
 			m_ActivePlayersRegister.Add(this);
 
 			AudioSource.enabled = true;
+
+			// Restore in case it was changed by audio asset and coroutine was stopped from OnDisable().
+			AudioSource.outputAudioMixerGroup = m_Output ?? AudioSource.outputAudioMixerGroup;
+
 			if (PlayOnEnable && (AudioResource || AudioAsset)) {
 				Play();
 			}
@@ -322,12 +326,14 @@ namespace DevLocker.Audio
 			}
 		}
 
-		public virtual void PlayOneShot(AudioClip clip)
+		public virtual void PlayOneShot(AudioClip clip, float volume = 1.0f)
 		{
 			StopVolumeCrt();
 			StopConductorCrt();
 
-			AudioSource.PlayOneShot(clip);
+			PlayDirectClip(clip, playAsOneShot: true, volume);
+
+			PlayStarted?.Invoke(this);    // So it shows up on the audio monitor.
 		}
 
 		public virtual void PlayOnGamepad(int playerIndex)
@@ -349,6 +355,11 @@ namespace DevLocker.Audio
 		[ContextMenu("Stop")]
 		public virtual void Stop()
 		{
+			Stop(InterruptionFadeDuration);
+		}
+
+		public virtual void Stop(float interruptionFadeDuration)
+		{
 			// Prevent multiple calls as it will reset the coroutine every time.
 			if (!m_ShouldPlayRepeating)
 				return;
@@ -356,12 +367,12 @@ namespace DevLocker.Audio
 			m_ShouldPlayRepeating = false;
 			IsPaused = false;
 
-			if (InterruptionFadeDuration > 0f) {
+			if (interruptionFadeDuration > 0f) {
 				// Just kill the coroutine and resume from where it left off.
 				if (m_VolumeCoroutine != null) {
 					StopCoroutine(m_VolumeCoroutine);
 				}
-				m_VolumeCoroutine = StartCoroutine(FadeVolumeCrt(InterruptionFadeDuration, false, AudioSource.Stop));
+				m_VolumeCoroutine = StartCoroutine(FadeVolumeCrt(interruptionFadeDuration, false, AudioSource.Stop));
 			} else {
 				StopVolumeCrt();
 				StopConductorCrt();
@@ -666,6 +677,34 @@ namespace DevLocker.Audio
 		/// Used by <see cref="AudioPlayerAsset.AudioConductor"/> to play sound without changing this component settings.
 		/// This way, the <see cref="Editor.AudioSourcePlayerMonitorWindow"/> will show the correct sound.
 		/// </summary>
+		public virtual void PlayDirectClip(AudioPlayerAsset.ClipWithVolumePitch clipPair, bool playAsOneShot)
+		{
+			if (AudioSource == null)
+				return;
+			if (clipPair.Clip == null)
+				throw new ArgumentNullException();
+
+			// This bypasses the AudioResource property.
+			AudioSource.clip = clipPair.Clip;
+
+			if (clipPair.HasPitches) {
+				AudioSource.pitch = Mathf.Pow(AudioPlayerAsset.CentPitchSize, clipPair.GetRandomPitch());
+			}
+
+			if (playAsOneShot) {
+				AudioSource.PlayOneShot(clipPair.Clip, clipPair.Volume * m_Volume);
+			} else {
+				AudioSource.volume = clipPair.Volume * m_Volume;
+				AudioSource.Play();
+			}
+
+			LastPlayTime = Time.time;
+		}
+
+		/// <summary>
+		/// Used by <see cref="AudioPlayerAsset.AudioConductor"/> to play sound without changing this component settings.
+		/// This way, the <see cref="Editor.AudioSourcePlayerMonitorWindow"/> will show the correct sound.
+		/// </summary>
 		public virtual void PlayDirectResource(AudioResource resource)
 		{
 			if (AudioSource == null)
@@ -703,6 +742,12 @@ namespace DevLocker.Audio
 
 		private IEnumerator StartAudioAsset(AudioPlayerAsset audioAsset, float delay)
 		{
+			delay += audioAsset.Delay;
+
+			if (m_AudioAsset.OutputMixer) {
+				AudioSource.outputAudioMixerGroup = m_AudioAsset.OutputMixer;
+			}
+
 			if (delay > 0f) {
 				float waitTime = 0f;
 				while (waitTime < delay) {
@@ -715,6 +760,12 @@ namespace DevLocker.Audio
 			}
 
 			yield return audioAsset.Play(this, ConductorsFilterContext);
+
+			// Restore the output if we changed it.
+			// Coroutine returns early, sound may still be playing - don't touch the mixer.
+			if (m_AudioAsset.OutputMixer && !m_AudioSource.isPlaying) {
+				AudioSource.outputAudioMixerGroup = m_Output;
+			}
 
 			// Signal that conductor finished playing (which doesn't mean the audio finished).
 			m_ConductorCoroutine = null;
@@ -732,7 +783,13 @@ namespace DevLocker.Audio
 
 		private void StopConductorCrt()
 		{
+			// Restore the output if we changed it. Even if the coroutine stopped playing long ago.
+			if (m_AudioAsset && m_AudioAsset.OutputMixer) {
+				AudioSource.outputAudioMixerGroup = m_Output;
+			}
+
 			if (m_ConductorCoroutine != null) {
+
 				StopCoroutine(m_ConductorCoroutine);
 				m_ConductorCoroutine = null;
 			}
@@ -800,9 +857,11 @@ namespace DevLocker.Audio
 
 			m_AudioSource.playOnAwake = false; // Will be handled by us.
 			m_AudioSource.resource = m_AudioResource;
-			m_AudioSource.outputAudioMixerGroup = m_Output ?? m_AudioSource.outputAudioMixerGroup;
+			m_AudioSource.outputAudioMixerGroup = m_Output ?? m_Template?.outputAudioMixerGroup ?? m_AudioSource.outputAudioMixerGroup;
+			m_Output = m_AudioSource.outputAudioMixerGroup; // In case we're using template with it's own mixer.
 			m_AudioSource.loop = m_RepeatPattern == RepeatPatternType.Loop;
 			m_AudioSource.volume = m_Volume;
+			m_AudioSource.mute = m_Mute;
 
 			if (m_Template && m_Template.gameObject != gameObject) {
 				CopyAudioSourceDetails(m_AudioSource, m_Template);

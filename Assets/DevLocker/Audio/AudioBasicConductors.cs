@@ -7,6 +7,7 @@ using UnityEngine.Audio;
 
 namespace DevLocker.Audio.Conductors
 {
+	[Serializable]
 	public class PlayAudioConductor : AudioPlayerAsset.AudioConductor
 	{
 		public const string StopPlayingSoundTooltip = "Should it stop (interrupt) the currently playing sound?\n\nWhen disabled will use AudioSource PlayOneShot() instead of normal Play().";
@@ -14,16 +15,22 @@ namespace DevLocker.Audio.Conductors
 		[Tooltip(StopPlayingSoundTooltip)]
 		public bool StopPlayingSound = false;
 
-		public AudioPlayerAsset.ClipWithVolume AudioClip;
+		public AudioPlayerAsset.ClipWithVolumePitch AudioClip;
 
 		public override IEnumerator Play(AudioSourcePlayer player, AudioPlayerAsset asset)
 		{
+			if (AudioClip.Clip == null) {
+				Debug.LogWarning($"No audio clip specified for conductor to play on \"{asset.name}\".", asset);
+				yield break;
+			}
+
 			player.PlayDirectClip(AudioClip, playAsOneShot: !StopPlayingSound);
 
 			yield break;
 		}
 	}
 
+	[Serializable]
 	public class PlayCollectionAudioConductor : AudioPlayerAsset.AudioConductor
 	{
 		public enum PlaybackMode
@@ -221,6 +228,7 @@ namespace DevLocker.Audio.Conductors
 		}
 	}
 
+	[Serializable]
 	public class IntroThenLoopConductor : AudioPlayerAsset.AudioConductor
 	{
 		public AudioClip Intro;
@@ -247,6 +255,7 @@ namespace DevLocker.Audio.Conductors
 		}
 	}
 
+	[Serializable]
 	public class PlayPitchSequenceConductor : AudioPlayerAsset.AudioConductor
 	{
 		public AudioPlayerAsset.ClipWithVolume AudioClip;
@@ -257,16 +266,7 @@ namespace DevLocker.Audio.Conductors
 		[Tooltip("Reset pitch index after this many seconds idle. Set to 0 to never reset so you can do it manually.")]
 		public float ResetAfterSeconds = 3f;
 
-		// To comply with music theory, the size of pitch difference should use semitones or cents.
-		// One octave corresponding to a doubling of frequency. For example, the frequency one octave above 40 Hz is 80 Hz. In other words - power of two.
-		// Semitone is the smallest musical step (white-to-black keys on piano distance).
-		// Each octave is 12 semitones. To move a frequency up one octave you multiply by 2. So to move a frequency up one semitone you multiply by 2^(1/12)= 1.059463
-		// Each semitone has 100 cent units. So to move a frequency up one cent you multiply by 2^(1/1200)= 1.0005777895065548592967925757932
-		// Read more here: https://www.reddit.com/r/Unity3D/comments/18ycc02/sharing_a_really_basic_but_useful_tip_if_theres_a/
-		// We use cents, because Unity uses cents in their AudioRandomContainer.
-		public const float CentPitchSize = 1.0005777895065548592967925757932f;
-
-		[Tooltip("Pitch sequence in cents. One semitone has 100 cents. One octave has 12 semitones.\nPrefer using semitone pitches, e.g. 100, 200, 400, etc.\n0 means no pitch change.")]
+		[Tooltip(AudioPlayerAsset.CentPitchHint)]
 		[Utils.FieldUnitDecorator("ct", "Cents")]
 		public int[] PitchSequence;
 
@@ -295,6 +295,11 @@ namespace DevLocker.Audio.Conductors
 
 		public override IEnumerator Play(AudioSourcePlayer player, AudioPlayerAsset asset)
 		{
+			if (AudioClip.Clip == null) {
+				Debug.LogWarning($"No audio clip specified for conductor to play on \"{asset.name}\".", asset);
+				yield break;
+			}
+
 			int pitchIndex = asset.GetConductorsStorageValue(PitchIndex_StorageKey, player, 0);
 			float lastPlayTime = asset.GetConductorsStorageValue(LastPlayTime_StorageKey, player, - 1f);
 
@@ -302,7 +307,7 @@ namespace DevLocker.Audio.Conductors
 				pitchIndex = 0;
 			}
 
-			player.AudioSource.pitch = Mathf.Pow(CentPitchSize, PitchSequence[pitchIndex]);
+			player.AudioSource.pitch = Mathf.Pow(AudioPlayerAsset.CentPitchSize, PitchSequence[pitchIndex]);
 
 			player.PlayDirectClip(AudioClip, playAsOneShot: true);
 
@@ -334,6 +339,7 @@ namespace DevLocker.Audio.Conductors
 	/// Play multiple sounds in a sequence, each one overlapping the last a bit.
 	/// Helps create continues loop that doesn't feel like one.
 	/// </summary>
+	[Serializable]
 	public class LoopSequenceOverlappingConductor : AudioPlayerAsset.AudioConductor
 	{
 		public AudioClip[] Clips;
@@ -348,6 +354,9 @@ namespace DevLocker.Audio.Conductors
 
 		public override IEnumerator Play(AudioSourcePlayer player, AudioPlayerAsset asset)
 		{
+			if (Clips.Length == 0)
+				yield break;
+
 			AudioClip clip = Clips.First();
 
 			float startTime = float.MinValue;   // Fake it to start immediately.

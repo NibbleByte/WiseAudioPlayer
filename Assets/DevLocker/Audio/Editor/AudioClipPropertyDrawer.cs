@@ -19,6 +19,11 @@ namespace DevLocker.Audio.Editor
 	{
 		public override void OnGUI(Rect position, SerializedProperty property, GUIContent label)
 		{
+			if (property.objectReferenceValue == null) {
+				EditorGUI.PropertyField(position, property);
+				return;
+			}
+
 			const float PLAY_BTN_WIDTH = 20.0f;
 			const float PADDING = 4.0f;
 
