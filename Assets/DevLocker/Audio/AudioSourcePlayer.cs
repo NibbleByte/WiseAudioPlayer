@@ -738,6 +738,19 @@ namespace DevLocker.Audio
 			LastPlayTime = Time.time;
 		}
 
+		/// <summary>
+		/// Can be used for animation event to play given <see cref="AudioPlayerAsset"/> without changing this component settings.
+		/// This way, the <see cref="Editor.AudioSourcePlayerMonitorWindow"/> will show the correct sound.
+		/// </summary>
+		public virtual void PlayDirectAudioAsset(AudioPlayerAsset asset)
+		{
+			if (AudioSource == null)
+				return;
+
+			AudioAsset = asset;
+			Play();
+		}
+
 		#endregion
 
 		private IEnumerator StartAudioAsset(AudioPlayerAsset audioAsset, float delay)

@@ -342,6 +342,16 @@ namespace DevLocker.Audio.Conductors
 	[Serializable]
 	public class LoopSequenceOverlappingConductor : AudioPlayerAsset.AudioConductor
 	{
+		[Serializable]
+		public struct IntroSettings
+		{
+			public AudioClip Intro;
+			public float IntroOverlap;
+		}
+
+		[Tooltip("Optional intro clip to play before the sequence starts.")]
+		public IntroSettings Intro;
+
 		public AudioClip[] Clips;
 
 		[Range(0f, 1f)]
@@ -349,6 +359,7 @@ namespace DevLocker.Audio.Conductors
 
 		[Tooltip("How much time should the sequence be looped? Set to -1 to loop endlessly.")]
 		public float Duration = -1f;
+		[Tooltip("How much time should the clips overlap each other in seconds. Set to 0 for no overlap.")]
 		public float Overlap = 0.1f;
 		public bool RandomizeSequence = false;
 
@@ -361,6 +372,8 @@ namespace DevLocker.Audio.Conductors
 
 			float startTime = float.MinValue;   // Fake it to start immediately.
 			float totalPlayTime = 0f;
+			bool playIntro = Intro.Intro != null;
+			float currentOverlap = playIntro ? Intro.IntroOverlap : Overlap;
 
 			while (true) {
 
@@ -371,13 +384,21 @@ namespace DevLocker.Audio.Conductors
 				if (Duration >= 0f && totalPlayTime > Duration)
 					yield break;	// The last clip will continue playing as OneShot.
 
-				if (Time.time - startTime > clip.length - Overlap) {
-					int nextIndex = RandomizeSequence
-						? UnityEngine.Random.Range(0, Clips.Length)
-						: (Array.IndexOf(Clips, clip) + 1) % Clips.Length;
+
+				if (Time.time - startTime > clip.length - currentOverlap) {
+
+					if (playIntro) {
+						clip = Intro.Intro;
+						playIntro = false;
+					} else {
+						int nextIndex = RandomizeSequence
+							? UnityEngine.Random.Range(0, Clips.Length)
+							: (Array.IndexOf(Clips, clip) + 1) % Clips.Length;
 						;
 
-					clip = Clips[nextIndex];
+						clip = Clips[nextIndex];
+						currentOverlap = Overlap;
+					}
 
 					startTime = Time.time;
 
